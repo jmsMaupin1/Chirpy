@@ -1,31 +1,68 @@
 package api
 
 import (
+	"database/sql"
+	"encoding/json"
 	"net/http"
+	"os"
+	"strings"
 	"sync/atomic"
-	"fmt"
+
+	"github.com/jmsMaupin1/chirpy/internal/database"
 )
 
 type ApiConfig struct {
 	FileserveHits atomic.Int32
+	DB database.Queries
 }
 
-func (cfg *ApiConfig) MiddlewareMetricsInc(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		cfg.FileserveHits.Add(1)
-		next.ServeHTTP(w, req)
-	})
+func New() (*ApiConfig, error) {
+	dbUrl := os.Getenv("DB_URL")
+	db, err := sql.Open("postgres", dbUrl)
+	if err != nil {
+		return nil, err
+	}
+
+	cfg := &ApiConfig{
+		FileserveHits: atomic.Int32{},
+		DB: *database.New(db),
+	}
+
+	return cfg, nil
+	
 }
 
-func (cfg *ApiConfig) MetricsHandler(w http.ResponseWriter, req *http.Request) {
-	w.Header().Add("Content-Type", "text/plain; charset=utf-8")
-	w.Header().Add("charset", "utf-8")
+func RespondWithJson(w http.ResponseWriter, status int, payload interface{}) error {
+	res, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
 
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(fmt.Sprintf("Hits: %d", cfg.FileserveHits.Load())))
+	w.Header().Add("Content-Type", "application/json")
+	w.WriteHeader(status)
+	w.Write(res)
+
+	return nil
 }
 
-func (cfg *ApiConfig) MetricsReset(w http.ResponseWriter, req *http.Request) {
-	cfg.FileserveHits.Store(0)
-	w.WriteHeader(http.StatusOK)
+func RespondWithError(w http.ResponseWriter, status int, error_msg string) error {
+	return RespondWithJson(w, status, map[string]string{"error": error_msg})
+}
+
+func CleanChirp(s string) string {
+	wordReplacements := map[string]string {
+			"kerfuffle": "****",
+			"sharbert": "****",
+			"fornax": "****",
+	}
+	
+	words := strings.Fields(s)
+
+	for i, word := range words {
+		if replacement, ok := wordReplacements[strings.ToLower(word)]; ok == true {
+			words[i] = replacement
+		}
+	}
+
+	return strings.Join(words, " ")
 }
