@@ -11,6 +11,13 @@ import (
 	"github.com/jmsMaupin1/chirpy/internal/database"
 )
 
+type User struct {
+	ID        uuid.UUID `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Email     string    `json:"email"`
+}
+
 func (cfg *ApiConfig) AddUser(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 
@@ -50,9 +57,18 @@ func (cfg *ApiConfig) AddUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	RespondWithJson(w, 200, user)
+	RespondWithJson(w, 201, User(user))
 }
 
-func (cfg *ApiConfig) DeleteUser(w http.ResponseWriter, r *http.Request) {
+func (cfg *ApiConfig) DeleteUsers(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()	
+
+	if err := cfg.DB.DeleteUsers(context.Background()); err != nil {
+		RespondWithError(w, 400, err.Error())
+		return
+	}
+
+	RespondWithJson(w, 200, struct{Msg string}{
+		Msg: "Success! Users deleted",
+	})
 }

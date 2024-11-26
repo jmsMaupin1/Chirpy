@@ -29,12 +29,14 @@ func main() {
 
 	mux.Handle("/app/", http.StripPrefix("/app", cfg.MiddlewareMetricsInc(http.FileServer(http.Dir(".")))))
 
-	mux.HandleFunc("POST /api/validate_chirp", api.Validate_json)
+	mux.HandleFunc("POST /api/chirps", cfg.AddChirp)
 	mux.HandleFunc("POST /api/users", cfg.AddUser)
+	mux.HandleFunc("GET /api/chirps/{id}", cfg.GetChirp)
 	mux.HandleFunc("GET /api/healthz", api.Health)
+	mux.HandleFunc("GET /api/chirps", cfg.GetAllChirps)
 
 	mux.HandleFunc("GET /admin/metrics", cfg.MetricsHandler)
-	mux.HandleFunc("POST /admin/reset", cfg.MetricsReset)
+	mux.HandleFunc("POST /admin/reset", cfg.Reset)
 	
 
 	log.Printf("Serving on port: %s\n", port)
