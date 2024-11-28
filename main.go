@@ -29,16 +29,23 @@ func main() {
 
 	mux.Handle("/app/", http.StripPrefix("/app", cfg.MiddlewareMetricsInc(http.FileServer(http.Dir(".")))))
 
-	mux.Handle("POST /api/chirps", cfg.MiddlewareAuthenticate(cfg.AddChirpHandler()))
-	mux.HandleFunc("POST /api/users", cfg.AddUser)
-	mux.HandleFunc("POST /api/login", cfg.Login)
-	mux.HandleFunc("GET /api/chirps/{id}", cfg.GetChirp)
-	mux.HandleFunc("GET /api/healthz", api.Health)
-	mux.HandleFunc("GET /api/chirps", cfg.GetAllChirps)
+	// Chirps
+	mux.Handle("POST /api/chirps", cfg.MiddlewareAuthenticate(cfg.AddChirp()))
+	mux.Handle("GET /api/chirps/{id}", cfg.GetChirp())
+	mux.Handle("GET /api/chirps", cfg.GetAllChirps())
+	mux.Handle("DELETE /api/chirps/{id}", cfg.MiddlewareAuthenticate(cfg.DeleteChirp()))
 
+	// Users
+	mux.Handle("POST /api/users", cfg.AddUser())
+	mux.Handle("PUT /api/users", cfg.MiddlewareAuthenticate(cfg.UpdateUser()))
+	mux.Handle("POST /api/login", cfg.Login())
+
+	// Token
 	mux.HandleFunc("POST /api/refresh", cfg.Refresh)
 	mux.HandleFunc("POST /api/revoke", cfg.Revoke)
 
+	// Metrics
+	mux.HandleFunc("GET /api/healthz", api.Health)
 	mux.HandleFunc("GET /admin/metrics", cfg.MetricsHandler)
 	mux.HandleFunc("POST /admin/reset", cfg.Reset)
 	

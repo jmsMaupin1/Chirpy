@@ -7,5 +7,11 @@ RETURNING *;
 SELECT * FROM users
 WHERE email = $1;
 
+-- name: UpdateUser :one
+UPDATE users u
+SET email = $2, hashed_password = $3, updated_at = $4
+WHERE id = $1
+RETURNING u.id, u.created_at, u.updated_At, u.email;
+
 -- name: DeleteUsers :exec
 DELETE FROM users;

@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -23,57 +22,59 @@ type User struct {
 	RefreshToken string `json:"refresh_token"`
 }
 
-func (cfg *ApiConfig) AddUser(w http.ResponseWriter, r *http.Request) {
-	defer r.Body.Close()
+func (cfg *ApiConfig) AddUser() http.Handler {
+	return http.HandlerFunc(func (w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
 
-	type requestBody struct {
-		Email string    `json:"email"`
-		Password string `json:"password"`
-	}
+		type requestBody struct {
+			Email string    `json:"email"`
+			Password string `json:"password"`
+		}
 
-	type responseBody struct {
-		ID string `json:"id"`
-		CreatedAt time.Time `json:"created_at"`
-		UpdatedAt time.Time `json:"updated_at"`
-		Email time.Time     `json:"email"`
-	}
+		type responseBody struct {
+			ID string `json:"id"`
+			CreatedAt time.Time `json:"created_at"`
+			UpdatedAt time.Time `json:"updated_at"`
+			Email time.Time     `json:"email"`
+		}
 
-	data, err := io.ReadAll(r.Body)
-	if err != nil {
-		RespondWithError(w, 400, err.Error())
-		return
-	}
+		data, err := io.ReadAll(r.Body)
+		if err != nil {
+			RespondWithError(w, 400, err.Error())
+			return
+		}
 
-	params := requestBody{}
-	err = json.Unmarshal(data, &params)
-	if err != nil{
-		RespondWithError(w, 400, err.Error())
-		return
-	}
+		params := requestBody{}
+		err = json.Unmarshal(data, &params)
+		if err != nil{
+			RespondWithError(w, 400, err.Error())
+			return
+		}
 
-	hashedPass, err := auth.HashPassword(params.Password)
-	if err != nil {
-		RespondWithError(w, 400, err.Error())
-	}
+		hashedPass, err := auth.HashPassword(params.Password)
+		if err != nil {
+			RespondWithError(w, 400, err.Error())
+		}
 
-	user, err := cfg.DB.CreateUser(context.Background(), database.CreateUserParams{
-		ID: uuid.New(),
-		Email: params.Email,
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
-		HashedPassword: hashedPass,
-	})
+		user, err := cfg.DB.CreateUser(context.Background(), database.CreateUserParams{
+			ID: uuid.New(),
+			Email: params.Email,
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+			HashedPassword: hashedPass,
+		})
 
-	if err != nil {
-		RespondWithError(w, 400, err.Error())
-		return
-	}
+		if err != nil {
+			RespondWithError(w, 400, err.Error())
+			return
+		}
 
-	RespondWithJson(w, 201, User{
-		ID: user.ID,
-		CreatedAt: user.CreatedAt,
-		UpdatedAt: user.UpdatedAt,
-		Email: user.Email,
+		RespondWithJson(w, 201, User{
+			ID: user.ID,
+			CreatedAt: user.CreatedAt,
+			UpdatedAt: user.UpdatedAt,
+			Email: user.Email,
+		})
 	})
 }
 
@@ -90,131 +91,139 @@ func (cfg *ApiConfig) DeleteUsers(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (cfg *ApiConfig) Refresh(w http.ResponseWriter, r *http.Request) {
-	defer r.Body.Close()
+func (cfg *ApiConfig) Login() http.Handler {
+	return http.HandlerFunc(func (w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
 
-	type responseBody struct {
-		Token string `json:"token"`
-	}
+		type requestBody struct {
+			Email string		   `json:"email"`
+			Password string		   `json:"password"`
+		}
 
-	token, err := auth.GetBearerToken(r.Header)
-	if err != nil {
-		RespondWithError(w, 400, err.Error())
-		return
-	}
+		ctx := context.Background()
 
-	refreshToken, err := cfg.DB.GetUserFromRefreshToken(context.Background(), token)
-	if err != nil {
-		RespondWithError(w, 400, err.Error())
-		return
-	}
+		data, err := io.ReadAll(r.Body)
+		if err != nil {
+			RespondWithError(w, 400, err.Error())
+			return
+		}
 
-	if (refreshToken.RevokedAt != sql.NullTime{}) || time.Now().After(refreshToken.ExpiresAt) {
-		RespondWithError(w, 401, "You must log in again")
-		return
-	}
+		params := requestBody{}
+		err = json.Unmarshal(data, &params)
+		if err != nil{
+			RespondWithError(w, 400, err.Error())
+			return
+		}
 
-	newToken, err := auth.MakeJWT(refreshToken.ID, os.Getenv("SECRET"), time.Duration(1 * time.Hour))
-	if err != nil {
-		RespondWithError(w, 401, err.Error())
-		return
-	}
+		user, err := cfg.DB.GetUserByEmail(ctx, params.Email)
+		if err != nil {
+			RespondWithError(w, 400, err.Error())
+			return
+		}
 
-	RespondWithJson(w, 200, responseBody{
-		Token: newToken,
+		if err = auth.CheckPasswordHash(params.Password, user.HashedPassword); err != nil {
+			RespondWithError(w, 401, err.Error())
+			return
+		}
+
+		expiry_time := time.Duration(1 * time.Hour)
+
+		accessToken, err := auth.MakeJWT(user.ID, cfg.Secret, expiry_time)
+		if err != nil {
+			RespondWithError(w, 400, err.Error())
+			return
+		}
+
+		refreshToken, err := auth.MakeRefreshToken()
+		if err != nil {
+			RespondWithError(w, 400, err.Error())
+		}
+
+		cfg.DB.CreateRefreshToken(ctx, database.CreateRefreshTokenParams{
+			Token: refreshToken,
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+			UserID: user.ID,
+			ExpiresAt: time.Now().Add(time.Duration(60 * 24 * time.Hour)),
+		})
+
+		RespondWithJson(w, 200, User{
+			ID: user.ID,
+			CreatedAt: user.CreatedAt,
+			UpdatedAt: user.UpdatedAt,
+			Email: user.Email,
+			Token: accessToken,
+			RefreshToken: refreshToken,
+		})
 	})
 }
 
-func (cfg *ApiConfig) Revoke(w http.ResponseWriter, r *http.Request) {
-	defer r.Body.Close()
+func (cfg *ApiConfig) UpdateUser() http.Handler {
+	return http.HandlerFunc(func (w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
 
-	ctx := context.Background()
+		type requestBody struct {
+			Email string `json:"email"`
+			Password string `json:"password"`
+		}
 
-	token, err := auth.GetBearerToken(r.Header)
-	if err != nil {
-		RespondWithError(w, 401, err.Error())
-		return
-	}
+		bearer, err := auth.GetBearerToken(r.Header)
+		if err != nil {
+			RespondWithError(w, 401, err.Error())
+			return
+		}
 
-	user, err := cfg.DB.GetUserFromRefreshToken(ctx, token)
-	if err != nil {
-		RespondWithError(w, 401, err.Error())
-		return
-	}
+		uid, err := auth.ValidateJWT(bearer, os.Getenv("SECRET"))
+		if err != nil {
+			RespondWithError(w, 401, err.Error())
+			return
+		}
 
-	err = cfg.DB.RevokeRefreshToken(ctx, database.RevokeRefreshTokenParams{
-		UserID: user.ID,
-		RevokedAt: sql.NullTime{Time: time.Now() ,Valid: true},
-		UpdatedAt: time.Now(),
-	})
-	if err != nil {
-		RespondWithError(w, 401, err.Error())
-	}
+		data, err := io.ReadAll(r.Body)
+		if err != nil {
+			RespondWithError(w, 401, err.Error())
+			return
+		}
 
-	w.WriteHeader(204)
-}
+		params := requestBody{}
+		err = json.Unmarshal(data, &params)
+		if err != nil{
+			RespondWithError(w, 401, err.Error())
+			return
+		}
 
-func (cfg *ApiConfig) Login(w http.ResponseWriter, r *http.Request) {
-	defer r.Body.Close()
+		hashed_password, err := auth.HashPassword(params.Password)
+		if err != nil {
+			RespondWithError(w, 401, err.Error())
+			return
+		}
 
-	type requestBody struct {
-		Email string		   `json:"email"`
-		Password string		   `json:"password"`
-	}
+		user, err := cfg.DB.UpdateUser(context.Background(), database.UpdateUserParams{
+			ID: uid,
+			UpdatedAt: time.Now(),
+			HashedPassword: hashed_password,
+			Email: params.Email,
+		})
 
-	ctx := context.Background()
+		if err != nil {
+			RespondWithError(w, 401, err.Error())
+			return
+		}
 
-	data, err := io.ReadAll(r.Body)
-	if err != nil {
-		RespondWithError(w, 400, err.Error())
-		return
-	}
-
-	params := requestBody{}
-	err = json.Unmarshal(data, &params)
-	if err != nil{
-		RespondWithError(w, 400, err.Error())
-		return
-	}
-
-	user, err := cfg.DB.GetUserByEmail(ctx, params.Email)
-	if err != nil {
-		RespondWithError(w, 400, err.Error())
-		return
-	}
-
-	if err = auth.CheckPasswordHash(params.Password, user.HashedPassword); err != nil {
-		RespondWithError(w, 401, err.Error())
-		return
-	}
-
-	expiry_time := time.Duration(1 * time.Hour)
-
-	accessToken, err := auth.MakeJWT(user.ID, cfg.Secret, expiry_time)
-	if err != nil {
-		RespondWithError(w, 400, err.Error())
-		return
-	}
-
-	refreshToken, err := auth.MakeRefreshToken()
-	if err != nil {
-		RespondWithError(w, 400, err.Error())
-	}
-
-	cfg.DB.CreateRefreshToken(ctx, database.CreateRefreshTokenParams{
-		Token: refreshToken,
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
-		UserID: user.ID,
-		ExpiresAt: time.Now().Add(time.Duration(60 * 24 * time.Hour)),
-	})
-
-	RespondWithJson(w, 200, User{
-		ID: user.ID,
-		CreatedAt: user.CreatedAt,
-		UpdatedAt: user.UpdatedAt,
-		Email: user.Email,
-		Token: accessToken,
-		RefreshToken: refreshToken,
+		RespondWithJson(w, 200, User{
+			ID: uid,
+			UpdatedAt: time.Now(),
+			CreatedAt: user.CreatedAt,
+			Email: user.Email,
+			Token: bearer,
+		})
 	})
 }
+
+
+
+
+
+
+
+

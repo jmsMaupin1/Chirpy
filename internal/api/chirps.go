@@ -20,86 +20,128 @@ type Chirp struct {
 	UserID    uuid.UUID `json:"user_id"`
 }
 
-func (cfg *ApiConfig) AddChirpHandler() http.Handler {
-	return http.HandlerFunc(cfg.AddChirp)
-}
+func (cfg *ApiConfig) AddChirp() http.Handler {
+	return http.HandlerFunc(func (w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
 
-func (cfg *ApiConfig) AddChirp(w http.ResponseWriter, r *http.Request) {
-	defer r.Body.Close()
+		type requestBody struct {
+			Body string `json:"body"`
+		}
 
-	type requestBody struct {
-		Body string `json:"body"`
-	}
+		data, err := io.ReadAll(r.Body)
+		if err != nil {
+			RespondWithError(w, 400, err.Error())
+			return
+		}
 
-	data, err := io.ReadAll(r.Body)
-	if err != nil {
-		RespondWithError(w, 400, err.Error())
-		return
-	}
+		params := requestBody{}
+		err = json.Unmarshal(data, &params)
+		if err != nil{
+			RespondWithError(w, 400, fmt.Sprintf("Unmarshalling error: %v", err.Error()))
+			return
+		}
 
-	params := requestBody{}
-	err = json.Unmarshal(data, &params)
-	if err != nil{
-		RespondWithError(w, 400, fmt.Sprintf("Unmarshalling error: %v", err.Error()))
-		return
-	}
+		userID, err := uuid.Parse(r.Header.Get("user_id"))
+		if err != nil {
+			RespondWithError(w, 400, err.Error())
+			return
+		}
 
-	userID, err := uuid.Parse(r.Header.Get("user_id"))
-	if err != nil {
-		RespondWithError(w, 400, err.Error())
-		return
-	}
+		if len(params.Body) == 0 || len(params.Body) > 140 {
+			RespondWithError(w, 400, "Chirps must have at least 1 character and no more than 140 charactes")
+			return
+		}
 
-	if len(params.Body) == 0 || len(params.Body) > 140 {
-		RespondWithError(w, 400, "Chirps must have at least 1 character and no more than 140 charactes")
-		return
-	}
+		chirp, err := cfg.DB.CreateChirp(context.Background(), database.CreateChirpParams{
+			ID: uuid.New(),
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+			Body: CleanChirp(params.Body),
+			UserID: userID,
+		})
 
-	chirp, err := cfg.DB.CreateChirp(context.Background(), database.CreateChirpParams{
-		ID: uuid.New(),
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
-		Body: CleanChirp(params.Body),
-		UserID: userID,
+		if err != nil {
+			RespondWithError(w, 400, fmt.Sprintf("Create Chirp Error: %v", err))
+			return 
+		}
+
+		RespondWithJson(w, 201, Chirp(chirp))
 	})
-
-	if err != nil {
-		RespondWithError(w, 400, fmt.Sprintf("Create Chirp Error: %v", err))
-		return 
-	}
-
-	RespondWithJson(w, 201, Chirp(chirp))
 }
 
-func (cfg *ApiConfig) GetChirp(w http.ResponseWriter, r *http.Request) {
-	defer r.Body.Close()
+func (cfg *ApiConfig) DeleteChirp() http.Handler {
+	return http.HandlerFunc(func (w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		ctx := context.Background()
 
-	id, err := uuid.Parse(r.PathValue("id"))
-	if err != nil {
-		RespondWithError(w, 400, err.Error())
-	}
+		idStr := r.Header.Get("user_id")
+		uid, err := uuid.Parse(idStr)
+		if err != nil {
+			RespondWithError(w, 400, err.Error())
+			return
+		}
 
-	c, err := cfg.DB.GetChirp(context.Background(), id)
-	if err != nil {
-		RespondWithError(w, 404, err.Error())
-	}
+		chirpID, err := uuid.Parse(r.PathValue("id"))
+		if err != nil {
+			RespondWithError(w, 400, err.Error())
+			return
+		}
 
-	RespondWithJson(w, 200, Chirp(c))
+		chirp, err := cfg.DB.GetChirp(ctx, chirpID)
+		if err != nil {
+			RespondWithError(w, 404, err.Error())
+			return
+		}
+
+		if chirp.UserID != uid {
+			RespondWithError(w, 403, "Access Forbidden")
+			return
+		}
+
+		err = cfg.DB.DeleteChirp(ctx, chirpID)
+		if err != nil {
+			RespondWithError(w, 400, err.Error())
+		}
+
+		w.WriteHeader(204)
+	})
 }
 
-func (cfg *ApiConfig) GetAllChirps(w http.ResponseWriter, r *http.Request) {
-	defer r.Body.Close()
-	allChirps := []Chirp{}
+func (cfg *ApiConfig) GetChirp() http.Handler {
+	return http.HandlerFunc(func (w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
 
-	chirps, err := cfg.DB.GetAllChirps(context.Background())
-	if err != nil {
-		RespondWithError(w, 400, err.Error())
-		return
-	}
+		id, err := uuid.Parse(r.PathValue("id"))
+		if err != nil {
+			RespondWithError(w, 400, err.Error())
+			return
+		}
 
-	for _, chirp := range chirps {
-		allChirps = append(allChirps, Chirp(chirp))
-	}
+		c, err := cfg.DB.GetChirp(context.Background(), id)
+		if err != nil {
+			RespondWithError(w, 404, err.Error())
+			return
+		}
 
-	RespondWithJson(w, 200, allChirps)
+		RespondWithJson(w, 200, Chirp(c))
+	})
+}
+
+func (cfg *ApiConfig) GetAllChirps() http.Handler {
+	return http.HandlerFunc(func (w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+		allChirps := []Chirp{}
+
+		chirps, err := cfg.DB.GetAllChirps(context.Background())
+		if err != nil {
+			RespondWithError(w, 400, err.Error())
+			return
+		}
+
+		for _, chirp := range chirps {
+			allChirps = append(allChirps, Chirp(chirp))
+		}
+
+		RespondWithJson(w, 200, allChirps)
+	})
 }
