@@ -14,12 +14,13 @@ import (
 )
 
 type User struct {
-	ID        uuid.UUID `json:"id"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Email     string    `json:"email"`
-	Token     string    `json:"token"`
-	RefreshToken string `json:"refresh_token"`
+	ID           uuid.UUID `json:"id"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	Email        string    `json:"email"`
+	Token        string    `json:"token"`
+	RefreshToken string    `json:"refresh_token"`
+	IsChirpyRed  bool      `json:"is_chirpy_red"`
 }
 
 func (cfg *ApiConfig) AddUser() http.Handler {
@@ -154,6 +155,7 @@ func (cfg *ApiConfig) Login() http.Handler {
 			Email: user.Email,
 			Token: accessToken,
 			RefreshToken: refreshToken,
+			IsChirpyRed: user.IsChirpyRed,
 		})
 	})
 }

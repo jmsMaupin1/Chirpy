@@ -48,6 +48,9 @@ func main() {
 	mux.HandleFunc("GET /api/healthz", api.Health)
 	mux.HandleFunc("GET /admin/metrics", cfg.MetricsHandler)
 	mux.HandleFunc("POST /admin/reset", cfg.Reset)
+
+	// Webhooks
+	mux.Handle("POST /api/polka/webhooks", cfg.WebhookPolka())
 	
 
 	log.Printf("Serving on port: %s\n", port)

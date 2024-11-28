@@ -17,6 +17,7 @@ type ApiConfig struct {
 	FileserveHits atomic.Int32
 	DB database.Queries
 	Secret string
+	PolkaSecret string
 }
 
 func New() (*ApiConfig, error) {
@@ -30,6 +31,7 @@ func New() (*ApiConfig, error) {
 		FileserveHits: atomic.Int32{},
 		DB: *database.New(db),
 		Secret: os.Getenv("SECRET"),
+		PolkaSecret: os.Getenv("POLKA"),
 	}
 
 	return cfg, nil	
