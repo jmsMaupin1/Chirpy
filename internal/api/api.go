@@ -7,13 +7,16 @@ import (
 	"os"
 	"strings"
 	"sync/atomic"
+	"fmt"
 
+	"github.com/jmsMaupin1/chirpy/internal/auth"
 	"github.com/jmsMaupin1/chirpy/internal/database"
 )
 
 type ApiConfig struct {
 	FileserveHits atomic.Int32
 	DB database.Queries
+	Secret string
 }
 
 func New() (*ApiConfig, error) {
@@ -26,10 +29,10 @@ func New() (*ApiConfig, error) {
 	cfg := &ApiConfig{
 		FileserveHits: atomic.Int32{},
 		DB: *database.New(db),
+		Secret: os.Getenv("SECRET"),
 	}
 
-	return cfg, nil
-	
+	return cfg, nil	
 }
 
 func RespondWithJson(w http.ResponseWriter, status int, payload interface{}) error {
@@ -65,4 +68,25 @@ func CleanChirp(s string) string {
 	}
 
 	return strings.Join(words, " ")
+}
+
+func (cfg *ApiConfig) MiddlewareAuthenticate(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		token, err := auth.GetBearerToken(req.Header)
+
+		if err != nil {
+			RespondWithError(w, 401, "Unauthorized")
+			return
+		}
+
+		id, err := auth.ValidateJWT(token, cfg.Secret)
+		if err != nil {
+			RespondWithError(w, 401, fmt.Sprintf("JWT Validation Error: %v", err.Error()))
+			return
+		}
+
+		req.Header.Add("user_id", id.String())
+
+		next.ServeHTTP(w, req)
+	})
 }

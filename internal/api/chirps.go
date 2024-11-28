@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"time"
@@ -19,13 +20,15 @@ type Chirp struct {
 	UserID    uuid.UUID `json:"user_id"`
 }
 
+func (cfg *ApiConfig) AddChirpHandler() http.Handler {
+	return http.HandlerFunc(cfg.AddChirp)
+}
 
 func (cfg *ApiConfig) AddChirp(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 
 	type requestBody struct {
 		Body string `json:"body"`
-		User_id uuid.UUID `json:"user_id"`
 	}
 
 	data, err := io.ReadAll(r.Body)
@@ -37,12 +40,19 @@ func (cfg *ApiConfig) AddChirp(w http.ResponseWriter, r *http.Request) {
 	params := requestBody{}
 	err = json.Unmarshal(data, &params)
 	if err != nil{
+		RespondWithError(w, 400, fmt.Sprintf("Unmarshalling error: %v", err.Error()))
+		return
+	}
+
+	userID, err := uuid.Parse(r.Header.Get("user_id"))
+	if err != nil {
 		RespondWithError(w, 400, err.Error())
 		return
 	}
 
 	if len(params.Body) == 0 || len(params.Body) > 140 {
 		RespondWithError(w, 400, "Chirps must have at least 1 character and no more than 140 charactes")
+		return
 	}
 
 	chirp, err := cfg.DB.CreateChirp(context.Background(), database.CreateChirpParams{
@@ -50,11 +60,11 @@ func (cfg *ApiConfig) AddChirp(w http.ResponseWriter, r *http.Request) {
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 		Body: CleanChirp(params.Body),
-		UserID: params.User_id,
+		UserID: userID,
 	})
 
 	if err != nil {
-		RespondWithError(w, 400, err.Error())
+		RespondWithError(w, 400, fmt.Sprintf("Create Chirp Error: %v", err))
 		return 
 	}
 
