@@ -127,20 +127,55 @@ func (cfg *ApiConfig) GetChirp() http.Handler {
 	})
 }
 
+func (cfg *ApiConfig) GetChirps() http.Handler {
+	return http.HandlerFunc(func (w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+	})
+}
+
 func (cfg *ApiConfig) GetAllChirps() http.Handler {
 	return http.HandlerFunc(func (w http.ResponseWriter, r *http.Request) {
 		defer r.Body.Close()
 		allChirps := []Chirp{}
+		ctx := context.Background()
 
-		chirps, err := cfg.DB.GetAllChirps(context.Background())
-		if err != nil {
-			RespondWithError(w, 400, err.Error())
-			return
-		}
+		aid := r.URL.Query().Get("author_id")
+		sort := r.URL.Query().Get("sort")
 
-		for _, chirp := range chirps {
-			allChirps = append(allChirps, Chirp(chirp))
-		}
+		if sort == "" {
+			sort = "desc"
+		} 
+
+		if aid != "" {
+			uid, err := uuid.Parse(aid)
+			if err != nil {
+				RespondWithError(w, 400, err.Error())
+				return
+			}
+
+			chirps, err := cfg.DB.GetChirpsByAuthor(ctx, database.GetChirpsByAuthorParams{
+				UserID: uid,
+				Sort: sort,
+			})
+			if err != nil {
+				RespondWithError(w, 400, err.Error())
+				return
+			}
+
+			for _, chirp := range chirps {
+				allChirps = append(allChirps, Chirp(chirp))
+			}
+		} else {
+			chirps, err := cfg.DB.GetAllChirps(context.Background(), sort)
+			if err != nil {
+				RespondWithError(w, 400, err.Error())
+				return
+			}
+
+			for _, chirp := range chirps {
+				allChirps = append(allChirps, Chirp(chirp))
+			}
+		}	
 
 		RespondWithJson(w, 200, allChirps)
 	})
